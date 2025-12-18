@@ -1,0 +1,11 @@
+services:
+  backend:
+    env_file:
+      - "./.env"
+    volumes:
+      - ./data:/data:/data
+      - ./telegram-backend/bot:/bot
+    build:
+      context: ./telegram-backend
+    container_name: telegram_backend
+    restart: unless-stopped

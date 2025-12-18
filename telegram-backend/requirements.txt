@@ -1,0 +1,5 @@
+aiogram
+magic-filter
+asyncio
+aiosqlite
+sqlalchemy
