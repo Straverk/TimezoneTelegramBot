@@ -66,23 +66,29 @@ def __default_timezone_format(timezone: UserTimezone) -> str:
     return f"{timezone.description}: {timezone.iana}"
 
 
-def get_timezones_markup(timezones: Tuple[UserTimezone], text_format=__default_timezone_format):
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=text_format(timezone), callback_data=CHOSE_TIMEZONE_CALLBACK + str(timezone.id))] for timezone in timezones
-        ]
-    )
+def get_timezones_markup(timezones: Tuple[UserTimezone], text_format=__default_timezone_format, cancel_button: bool = False):
+    keyboard = [[InlineKeyboardButton(text=text_format(
+        timezone), callback_data=CHOSE_TIMEZONE_CALLBACK + str(timezone.id))] for timezone in timezones]
+
+    if cancel_button:
+        keyboard.append([InlineKeyboardButton(
+            text="❌ Назад", callback_data=CHOSE_TIMEZONE_CALLBACK + "cancel")])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 INSPECT_MAKE_DEFAULT_CALLBACK = "make-default"
 INSPECT_DELETE_CALLBACK = "delete"
+INSPECT_CANCEL_CALLBACK = "cancel"
 
 
 def get_inspect_timezone_markup(is_default: bool):
     buttons = [
         [
             InlineKeyboardButton(
-                text="🗑 Удалить ", callback_data=INSPECT_DELETE_CALLBACK)
+                text="🗑 Удалить ", callback_data=INSPECT_DELETE_CALLBACK),
+            InlineKeyboardButton(
+                text="❌ Назад", callback_data=INSPECT_CANCEL_CALLBACK)
         ]
     ]
     if not is_default:

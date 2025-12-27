@@ -171,7 +171,9 @@ async def remove_zone(message: Message, state: FSMContext):
             f"Выберите часовую зону для удаления",
             reply_markup=get_timezones_markup(
                 timezones,
-                lambda zone: format_timezone_user(zone, user)))
+                lambda zone: format_timezone_user(zone, user),
+                cancel_button=True
+            ))
 
         await put_state_message(state, answer.message_id)
 
@@ -181,27 +183,29 @@ async def remove_zone(message: Message, state: FSMContext):
 @router.callback_query(StateFilter(Remove.id), F.data.contains(CHOSE_TIMEZONE_CALLBACK))
 async def choose_delete_id(callback: CallbackQuery, state: FSMContext, bot: Bot):
     delete_id = callback.data[callback.data.find("_") + 1:]
-    if not delete_id.isdigit():
-        return
-    delete_id = int(delete_id)
 
-    zone = await remove_timezone(callback.message.chat.id, delete_id)
+    if delete_id != "cancel":
 
-    if zone is None:
-        return
+        if not delete_id.isdigit():
+            return
+        delete_id = int(delete_id)
 
-    await callback.message.answer(f"Удалено {format_timezone(zone)}", reply_markup=main_markup)
+        zone = await remove_timezone(callback.message.chat.id, delete_id)
+
+        if zone is None:
+            return
+
+        await callback.message.answer(f"Удалено {format_timezone(zone)}", reply_markup=main_markup)
 
     await pop_state_message(state, bot, callback.message.chat.id)
     await state.clear()
 
 
 # Show time
-@router.message(F.text == SHOW_TIME_REPLY)
-# @router.callback_query(StateFilter(None), F.data == "time")
-async def show_timezones(message: Message):
+async def answer_timezones(message: Message):
     user = await get_user(message.chat.id)
     zones = await get_timezones(message.chat.id)
+
     await message.answer(
         "Часовые зоны:",
         reply_markup=get_timezones_markup(
@@ -210,8 +214,15 @@ async def show_timezones(message: Message):
         ))
 
 
+@router.message(StateFilter(None), F.text == SHOW_TIME_REPLY)
+@router.message(StateFilter(Inspect.action), F.text == SHOW_TIME_REPLY)
+async def show_timezones(message: Message):
+    await answer_timezones(message)
+
+
 @router.callback_query(StateFilter(None), F.data.contains(CHOSE_TIMEZONE_CALLBACK))
-async def chose_timezone(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(StateFilter(Inspect.action), F.data.contains(CHOSE_TIMEZONE_CALLBACK))
+async def chose_timezone(callback: CallbackQuery, state: FSMContext, bot: Bot):
     user = await get_user(callback.message.chat.id)
     timezone_id = callback.data[callback.data.find("_") + 1:]
     if not timezone_id.isdigit():
@@ -226,43 +237,42 @@ async def chose_timezone(callback: CallbackQuery, state: FSMContext):
     await state.update_data(timezone_id=timezone_id)
 
     # await callback.message.answer(" ", reply_markup=cancel_markup)
-    await callback.message.answer(f"{format_timezone(zone)}", reply_markup=get_inspect_timezone_markup(user.default_timezone == zone.iana))
+    answer = await callback.message.answer(f"{format_timezone(zone)}", reply_markup=get_inspect_timezone_markup(user.default_timezone == zone.iana))
+    await replace_state_message(state, bot, answer.chat.id, answer.message_id)
+
     await callback.answer()
 
 
 @router.callback_query(StateFilter(Inspect.action), F.data == INSPECT_DELETE_CALLBACK)
-async def delete_inspect_timezone(callback: CallbackQuery, state: FSMContext):
+async def delete_inspect_timezone(callback: CallbackQuery, state: FSMContext, bot: Bot):
     zone = await remove_timezone(callback.message.chat.id, await state.get_value("timezone_id"))
 
     await callback.message.answer(f"Удалено {format_timezone(zone)}", reply_markup=main_markup)
 
+    await pop_state_message(state, bot, callback.message.chat.id)
     await state.clear()
 
-    user = await get_user(callback.message.chat.id)
-    zones = await get_timezones(callback.message.chat.id)
-
-    await callback.message.answer(
-        "Часовые зоны:",
-        reply_markup=get_timezones_markup(
-            zones,
-            lambda zone: format_timezone_user(zone, user)
-        ))
+    await answer_timezones(callback.message)
 
 
 @router.callback_query(StateFilter(Inspect.action), F.data == INSPECT_MAKE_DEFAULT_CALLBACK)
-async def default_inspect_timezone(callback: CallbackQuery, state: FSMContext):
+async def default_inspect_timezone(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await set_default_timezone(callback.message.chat.id, await state.get_value("timezone_id"))
 
+    await pop_state_message(state, bot, callback.message.chat.id)
     await state.clear()
 
-    user = await get_user(callback.message.chat.id)
-    zones = await get_timezones(callback.message.chat.id)
-
-    await callback.message.answer(
-        "Часовые зоны:",
-        reply_markup=get_timezones_markup(
-            zones,
-            lambda zone: format_timezone_user(zone, user)
-        ))
+    await answer_timezones(callback.message)
 
     await callback.answer()
+
+
+@router.callback_query(StateFilter(Inspect.action), F.data == INSPECT_CANCEL_CALLBACK)
+async def cancel_inspect(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await pop_state_message(state, bot, callback.message.chat.id)
+
+    await state.clear()
+    await callback.answer()
+
+    # await callback.message.answer("Возврат к главному меню", reply_markup=main_markup)
+    # await answer_timezones(callback.message)
