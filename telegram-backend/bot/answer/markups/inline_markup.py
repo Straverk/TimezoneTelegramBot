@@ -96,3 +96,15 @@ def get_inspect_timezone_markup(is_default: bool):
             text="️️️️️⭐️ Сделать основной", callback_data=INSPECT_MAKE_DEFAULT_CALLBACK))
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+SHOW_GETTIME = "get-time_"
+
+
+def get_gettime_markup(id: str):
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(
+            text="Время", callback_data=SHOW_GETTIME + id)]]
+    )
+
+    return markup

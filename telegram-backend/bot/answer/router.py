@@ -1,13 +1,14 @@
 from aiogram import Bot, Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.filters import CommandStart, Command, StateFilter
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.filters import CommandStart, Command, CommandObject, StateFilter
+from aiogram.types import Message, CallbackQuery
 from database.models import UserTimezone, User
 from database.request import add_timezone, get_timezone, get_timezones, remove_timezone, get_user, set_default_timezone
 from answer.markups.inline_markup import *
 from answer.markups.keyboard_markup import *
 from answer.states import *
-from datetime import datetime
+from answer.commands import *
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 
@@ -54,8 +55,9 @@ async def replace_state_message(state: FSMContext, bot: Bot, chat_id: int, new_m
 
 # Main
 @router.message(CommandStart())
-async def start(message: Message):
+async def start(message: Message, bot: Bot):
     await message.answer(text=f"Это бот сделанный с целью сделать работу в разных часовых поясах более удобной.\n\nДля взаимодействия с ботом ответьте на это сообщение.", reply_markup=main_markup)
+    await bot.set_my_commands(commands)
 
 
 """
@@ -276,3 +278,100 @@ async def cancel_inspect(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
     # await callback.message.answer("Возврат к главному меню", reply_markup=main_markup)
     # await answer_timezones(callback.message)
+
+
+# Commands
+def parse_time(str: str, tz: ZoneInfo) -> tuple[datetime, bool] | tuple[None, None]:
+    date = str.split(".")
+    time = date[-1].split(":")
+
+    if len(time) < 2 or not (time[-1].isdigit() and time[-2].isdigit()):
+        return None
+
+    hours, minutes = map(int, (time[-2], time[-1]))
+    if not (0 <= hours < 24 and 0 <= minutes < 60):
+        return None
+
+    for i in date[:-1]:
+        if not i.isdigit():
+            return None
+
+    date = list(map(int, date[-2::-1]))
+
+    # now = datetime.now()
+    day, month, year, *_ = *date, None, None, None
+
+    has_only_time = False
+
+    if year is None:
+        now = datetime.now(tz)
+        year = now.year
+
+        if month is None:
+            month = now.month
+
+            if day is None:
+                day = now.day
+                has_only_time = True
+
+    elif year < 2000:
+        year += 2000
+
+    try:
+        dt = datetime(year, month, day, hour=hours, minute=minutes, tzinfo=tz)
+    except:
+        return None, None
+
+    return dt, has_only_time
+
+
+@router.message(Command(SUGGEST_TIME_COMMAND))
+async def suggest_time_command(message: Message, command: CommandObject, bot: Bot):
+    if command.args is None:
+        await message.reply("Введите время в формате ЧЧ:ММ!\nОпционально можно добавить год, дату и месяц, пример:\nГГ.ММ.ДД.ЧЧ:ММ, ММ.ДД.ЧЧ:ММ или ДД.ЧЧ:ММ")
+        return
+
+    time_split_start = command.args.find(" ") + 1
+    time_split_end = command.args.find(" ", time_split_start)
+    if time_split_end == -1:
+        time_split_end = len(command.args) - time_split_start
+
+    time_str = command.args[time_split_start: time_split_end]
+
+    user = await get_user(message.from_user.id)
+    if user is None:
+        return
+
+    dt, has_only_time = parse_time(time_str, ZoneInfo(user.default_timezone))
+    if dt == None:
+        await message.reply("Введите время в формате ЧЧ:ММ!\nОпционально можно добавить год, дату и месяц, пример:\nГГГГ.ММ.ДД.ЧЧ:ММ, ММ.ДД.ЧЧ:ММ или ДД.ЧЧ:ММ")
+        return
+
+    await message.reply(f"Время в своей часовой зоне: {dt.strftime(f"%H:%M" if has_only_time else f"%Y.%m.%d.%H:%M")}",
+                        reply_markup=get_gettime_markup(dt.strftime(f"%H:%M_{user.default_timezone}" if has_only_time else f"%Y.%m.%d.%H:%M_{user.default_timezone}")))
+
+
+@router.callback_query(F.data.contains(SHOW_GETTIME))
+async def show_get_time_callback(callback: CallbackQuery):
+    if callback.data == None:
+        return
+
+    data_start = callback.data.find("_") + 1
+    user_start = callback.data.find("_", data_start) + 1
+
+    dt, has_only_time = parse_time(
+        callback.data[data_start:user_start - 1], ZoneInfo(callback.data[user_start:]))
+
+    if dt == None:
+        return
+
+    user = await get_user(callback.from_user.id)
+    if user is None:
+        dt = dt.astimezone(timezone.utc)
+    else:
+        dt = dt.astimezone(ZoneInfo(user.default_timezone))
+
+    await callback.message.reply(
+        f"Время: {dt.strftime("%H:%M") if has_only_time else dt.isoformat(" ")}{" в UTC=0 зоне\nДля того чтобы узнать время в вашем часовом поясе настройте их в личных сообщениях у бота" if user is None else ""}")
+
+    await callback.answer()
